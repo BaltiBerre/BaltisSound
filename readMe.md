@@ -1,15 +1,17 @@
 # sc_rip
 
-A Python CLI for ripping SoundCloud tracks with full metadata, embedded artwork, and artist profile dumps.
+SoundCloud ripper with full metadata, embedded artwork, and artist profile dumps. Comes in two flavors — a native GUI app and a CLI script.
 
-## What it does
+---
 
-- Downloads tracks, playlists, or an artist's full discography
-- Embeds cover art and ID3 tags directly into the audio file
-- Saves a `metadata.json` per track (play counts, genre, BPM, waveform URL, publisher info, etc.)
-- Saves an `artist_profile.json` with follower count, bio, social links, city, verified status
-- Downloads the artist avatar at original resolution and the banner image if present
-- Supports 256kbps AAC streams if you supply your OAuth token (vs 128kbps without it)
+## Files
+
+| File | What it is |
+|------|------------|
+| `sc_rip_gui.py` | GUI app — folder picker, format selector, log window. Start here. |
+| `sc_rip.py` | CLI version for scripting or batch use. |
+
+---
 
 ## Install
 
@@ -18,55 +20,69 @@ pip install yt-dlp mutagen requests Pillow
 ```
 
 You also need FFmpeg on your PATH for audio extraction and thumbnail embedding.
-- macOS: `brew install ffmpeg`
-- Ubuntu/Debian: `apt install ffmpeg`
-- Windows: download from https://ffmpeg.org/download.html and add to PATH
 
-## Usage
+```bash
+# macOS
+brew install ffmpeg
+
+# Ubuntu / Debian
+apt install ffmpeg
+
+# Windows
+# download from https://ffmpeg.org/download.html and add to PATH
+```
+
+`tkinter` (used by the GUI) ships with Python — no extra install needed.
+
+---
+
+## GUI
+
+```bash
+python sc_rip_gui.py
+```
+
+A window opens. Paste a SoundCloud URL, pick an output folder, choose a format, optionally add your OAuth token, hit **DOWNLOAD**. The log box streams output in real time.
+
+---
+
+## CLI
 
 ```bash
 python sc_rip.py <url> [--out <dir>] [--format mp3|m4a|opus] [--oauth <token>]
 ```
 
-### Examples
-
 ```bash
 # single track
 python sc_rip.py https://soundcloud.com/artist/trackname
 
-# full discography (all uploads, no reposts)
+# full discography
 python sc_rip.py https://soundcloud.com/artist
 
 # playlist / set
 python sc_rip.py https://soundcloud.com/artist/sets/setname
 
-# specify output directory and format
+# specify output dir and format
 python sc_rip.py https://soundcloud.com/artist --out ~/Music/sc --format m4a
 
-# with OAuth token for 256kbps streams
+# with OAuth token for 256kbps
 python sc_rip.py https://soundcloud.com/artist --oauth "OAuth x-111-222-333"
 ```
 
-## Getting your OAuth token (optional but recommended)
+---
 
-Without it you get 128kbps. With it you get 256kbps AAC.
+## What gets saved
 
-1. Go to soundcloud.com and log in
-2. Open DevTools (F12) and go to the Network tab
-3. Filter by `session`
-4. Look at the `Authorization` request header value — it looks like `OAuth x-123456-789012345-abcdef`
-5. Pass that string to `--oauth`
-
-## Output structure
+Every run saves the audio file with embedded cover art and ID3 tags, plus a set of sidecar files:
 
 ```
 sc_downloads/
 └── artist-slug/
-    ├── artist_profile.json      # full user object from SC v2 API
-    ├── avatar_original.jpg      # full-res avatar
-    ├── banner.jpg               # profile banner if present
-    └── Track Title [id].mp3     # audio with embedded art + ID3 tags
-    └── Track Title [id].info.json  # raw metadata dump per track
+    ├── artist_profile.json         # follower count, bio, social links, city, verified status
+    ├── avatar_original.jpg         # full-res avatar (not the 100x100 thumbnail)
+    ├── banner.jpg                  # profile banner if the artist has one
+    ├── Track Title [id].mp3        # audio with embedded art + tags
+    └── Track Title [id].info.json  # raw SC metadata: BPM, ISRC, waveform URL, play/like counts, genre
 ```
 
 For playlists there's an extra level:
@@ -82,20 +98,42 @@ sc_downloads/
         └── Track Title [id].mp3
 ```
 
-## How the client_id works
+---
 
-SoundCloud closed public API registration years ago. The script scrapes the SoundCloud homepage at runtime, collects all hashed JS bundle URLs, and regex-searches them for the 32-character `client_id` string embedded in the frontend code. This is the same approach yt-dlp uses internally and gets refreshed on every run, so you're never stuck on a stale key.
+## OAuth token — 128kbps vs 256kbps
+
+Without a token you get 128kbps. With one you get 256kbps AAC.
+
+1. Go to soundcloud.com and log in
+2. Open DevTools (`F12`) and go to the **Network** tab
+3. Filter requests by `session`
+4. Click the request and look at the `Authorization` header value
+5. It looks like `OAuth x-123456-789012345-abcdef` — copy the whole thing
+6. Paste it into the OAuth field in the GUI, or pass it to `--oauth` in the CLI
+
+The token is tied to your session and will eventually expire. If downloads start failing, refresh it.
+
+---
 
 ## Formats
 
-| Flag | Container | Notes |
-|------|-----------|-------|
+| Option | Container | Notes |
+|--------|-----------|-------|
 | `mp3` (default) | MP3 | universally compatible, VBR best quality |
-| `m4a` | AAC/M4A | better quality-per-bit than mp3, works in Apple ecosystem |
-| `opus` | Opus/WebM | best compression, not supported everywhere |
+| `m4a` | AAC/M4A | better quality-per-bit, works natively in Apple ecosystem |
+| `opus` | Opus/WebM | best compression ratio, not supported everywhere |
+
+---
+
+## How the client_id works
+
+SoundCloud closed public API registration years ago. Both scripts scrape the SoundCloud homepage at runtime, collect all hashed JS bundle URLs (`a-v2.sndcdn.com/assets/*.js`), and regex-search them for the 32-character `client_id` embedded in the frontend code. This is the same approach yt-dlp uses internally. It runs fresh on every invocation so a rotated key never breaks anything.
+
+---
 
 ## Notes
 
-- The script pages through all tracks when given a user URL (50 per request), so large discographies take a while
-- It adds a 300ms delay between pagination requests to avoid hammering the API
-- Per-track `.info.json` files include waveform data, play/like/repost counts, BPM if set, genre tags, and publisher metadata (ISRC, label, etc.) when the artist has filled them in
+- When given a user URL the script pages through tracks 50 at a time with a 300ms delay between requests
+- The `.info.json` sidecar includes everything SC returns: waveform data, play/like/repost counts, BPM if set, genre tags, and publisher metadata (ISRC, label, p-line) when the artist has filled them in
+- The GUI runs downloads on a background thread so the window stays responsive; clicking Download while one is running does nothing
+- The OAuth field in the GUI masks input with bullets so the token isn't visible if you're screen sharing
